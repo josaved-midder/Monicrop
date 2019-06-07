@@ -1,0 +1,197 @@
+/**
+ * Código: Monicrop GPRS
+ * @author Jose Saavedra <jose.saavedra@midder.co>
+ * 
+ */
+/**
+  * @brief Libreria comunicación serial por Software
+  */
+#include <SoftwareSerial.h>
+/**
+ * @brief Se nombra la variable que hace comunicación serial y inicializacion de sus GPIO del 
+ */
+//SoftwareSerial Serial3G(13, 15); /* Seleccionamos los pines 13 como Rx(D7) y 15 como Tx(D8) */
+SoftwareSerial Serial3G(10, 11); /* arduino Seleccionamos los pines 10 como Rx y 11 como Tx */
+/**
+ * @brief Inicializar varible que controla el arranque del modulo 
+ */
+int PIN_ON_OFF = 9;
+/**
+ * @brief inicializar varias Comando AT
+ */
+int Respuesta;
+char aux_str[50] ;
+char direccion[] = "POST /set_dato/ \r\nHost: agrobot.midder.co\r\nConnection: close\r\n\r\n";
+
+/**
+ * @brief Función que envia los comando AT
+ * @param String Comando_AT comando AT a ejecutar 
+ * @param char* Respuesta_Correcta identifica cual es la respuesta correcta que tiene que responder el SIM800L o SIM900
+ * @param unsigned int Tiempo tiempo de espera 
+ * @return Bool Correcto devuelve un valor entre 0 (incorrecto) y 1 (correcto)
+ */
+int Enviar_AT(String Comando_AT, String Respuesta_Correcta_String, unsigned long Tiempo)
+{
+  int x = 0;
+  bool Correcto = 0;
+  char Respuesta[100];
+  unsigned long Tiempo_Anterior;
+
+  memset(Respuesta, '\0', 100); /** Se inicializa el String */
+  delay(100);
+  while (Serial3G.available() > 0)
+    Serial3G.read();            /** Se limpia el Buffer de entrada*/
+  Serial3G.println(Comando_AT); /** Se envia el comando AT*/
+  x = 0;
+  Tiempo_Anterior = millis();
+  /**
+    * @brief Se espera la respuesta
+    */
+  do
+  {
+    /**
+      * @brief Si hay datos en el buffer de entrada del UART lee y comprueba la respuesta
+      */
+    if (Serial3G.available() != 0)
+    {
+      Respuesta[x] = Serial3G.read();
+      x++;
+      /**
+        * @brief Se comprueba si la respuesta es correcta 
+        */
+      if (strstr(Respuesta, Respuesta_Correcta) != NULL)
+      {
+        Correcto = 1;
+      }
+    }
+    
+  }
+      /**
+    * @brief Se espera hasta tener una respuesta correcta
+    */
+      while ((Correcto == 0) );
+  Serial.println(Respuesta);
+  return Correcto;
+}
+/**
+ * @brief Función que prende el modulo
+ * 
+ */
+void arrancar()
+{
+  if (Enviar_AT("AT", "OK", 2000) == 0)
+  {
+    /**
+     * Si se utiliza el SIM900 es nos ayuda a prenderlo 
+     */
+    // pinMode(PIN_ON_OFF, OUTPUT);
+    // digitalWrite(PIN_ON_OFF, HIGH);
+    // delay(1000);
+    // digitalWrite(PIN_ON_OFF, LOW);
+    // delay(1000);
+    Serial.println("Por favor prenda el GPRS . . . . . . . . .");
+    while (Respuesta == 0)
+    {
+      Respuesta = Enviar_AT("AT", "OK", 2000);
+      Serial3G.println(Respuesta);
+    }
+  }
+}
+/**
+ * @brief Función que apaga el modulo
+ */
+void Apagar()
+{
+  /** Descomentar si se quiere controlar por software el aarranque del modulo */
+  //digitalWrite(PIN_ON_OFF, HIGH);
+  //delay(1000);
+  //digitalWrite(PIN_ON_OFF, LOW);
+  //delay(1000);
+}
+/** 
+ * @brief Funcion que reinicia el modulo
+ */
+void Reiniciar()
+{
+  Serial.println("Se esta reiniciando el modulo . . . . . . . .. ");
+  Apagar();
+  delay(5000);
+  arrancar();
+}
+/**
+ * @brief Función de iniciar el modulo
+ */
+void Iniciar()
+{
+  Serial.println("Connectando a la RED .  .. . . . . . . . .");
+  while (Enviar_AT("AT+CREG?", "+CREG: 0,1", 1000) == 0)
+  {
+  }
+  Serial.println("Conectado a la red.");
+  Enviar_AT("AT+CGATT=1\r", "OK", 1000);                                             //Iniciamos la conexión GPRS
+  Enviar_AT("AT+CSTT=\"internet.comcel.com.co\",\"comcel\",\"comcel\"", "OK", 5000); //Definimos el APN, usuario y clave a utilizar
+  Enviar_AT("AT+CIICR", "OK", 3000);                                                 //Activamos el perfil de datos inalámbrico
+  Enviar_AT("AT+CIFSR", "", 3000);                                                   //Activamos el perfil de datos inalámbrico
+}
+/**
+ * @brief Funcion que comprueba la conexión a la RED
+ */
+void PeticionHttp()
+{
+  if (Enviar_AT("AT+CREG?", "+CREG: 0,1", 1000) == 1) //Comprueba la conexion a la red
+  {
+    Enviar_AT("AT+CIPSTART=\"TCP\",\"agrobot.midder.co\",\"80\"", "CONNECT OK", 5000); //Inicia una conexión TCP
+    // Envíamos datos a través del TCP
+    sprintf(aux_str, "AT+CIPSEND", strlen(direccion));
+    if (Enviar_AT(aux_str, ">", 10000) == 1)
+    {
+      //Enviar_AT(direccion, "OK", 10000);
+      Serial3G.println("JOSE SAAVEDRA DIAZ");
+    }
+  }
+  else
+  {
+    Reiniciar();
+    Iniciar();
+  }
+}
+
+/** 
+ * @brief Función que se solo se ejecuta una vez, después de cada encendido o reinicio de la placa 
+ * 
+ */
+void setup()
+{
+  Serial3G.begin(9600); //Configura velocidad del puerto serie para el SIM900
+  Serial.begin(9600);   //Configura velocidad del puerto serie del Arduino
+  delay(1000);
+  Serial.println("Iniciando...");
+  arrancar();
+   Iniciar();
+   Serial.println("Fin...");
+}
+/**
+ * Función de arranque o principal
+ * @return void 
+ */
+void loop()
+{
+  if (Serial.available())
+    switch (Serial.read())
+    {
+    case 'h':
+      PeticionHttp();
+      break;
+    case 'q':
+      // Closes the socket
+      Enviar_AT("AT+CIPCLOSE", "CLOSE OK", 10000); //Cerramos la conexion
+      Enviar_AT("AT+CIPSHUT", "OK", 10000);        //Cierra el contexto PDP del GPRS
+      delay(10000);
+      break;
+    }
+  if (Serial3G.available())
+  {
+    Serial.write(Serial3G.read());
+  }
+  
+}
